@@ -109,7 +109,7 @@ case_ ∷ forall a b c. HVariantF () a b -> c
 case_ r = unsafeCrashWith case unsafeCoerce r of
   HVariantFRep v -> "HFunctor.Variant: pattern match failure [" <> v.type <> "]"
 
-matchF
+match
   ∷ forall rl r r1 r2 a b c
   . RL.RowToList r rl
   => HVariantFMatchCases rl r1 a b
@@ -117,7 +117,7 @@ matchF
   => Record r
   -> HVariantF r2 a b
   -> c
-matchF r = case_ # onMatch r
+match r = case_ # onMatch r
 
 default :: forall a b c r. a -> HVariantF r b c -> a
 default a _ = a
