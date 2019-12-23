@@ -3,14 +3,15 @@ module HFunctor.Variant where
 import Prelude
 
 import Control.Alternative (class Alternative, empty)
-import Data.Symbol (class IsSymbol, SProxy, reflectSymbol)
-import Higher (class HFunctor, hmap)
+import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
+import Higher (class HFoldable, class HFunctor, class HTraversable, type (~>.), NatM, hfoldMap, hfoldl, hfoldr, hmap, htraverse)
+import Partial.Unsafe (unsafeCrashWith)
 import Prim.Row as R
 import Prim.RowList as RL
 import Record.Unsafe (unsafeGet, unsafeHas)
+import Type.Data.RowList (RLProxy(..))
 import Type.Equality (class TypeEquals)
 import Unsafe.Coerce (unsafeCoerce)
-import Partial.Unsafe (unsafeCrashWith)
 
 data HProxy (h ∷ (Type -> Type) -> Type -> Type) = HProxy
 
@@ -40,6 +41,53 @@ instance hfunctorHVariantF ∷ HFunctor (HVariantF r) where
       coerceY = unsafeCoerce
       coerceV ∷ forall h f. HVariantFRep h f ~> HVariantF r f
       coerceV = unsafeCoerce
+
+class HFoldableHVFRL (rl :: RL.RowList) (row :: # Type) | rl -> row where
+  hfoldrHVFRL :: forall a b. RLProxy rl -> (a ~>. (b -> b)) -> b -> HVariantF row a ~>. b
+  hfoldlHVFRL :: forall a b. RLProxy rl -> (b -> (a ~>. b)) -> b -> HVariantF row a ~>. b
+  hfoldMapHVFRL :: forall m a. Monoid m => RLProxy rl -> (a ~>. m) -> HVariantF row a ~>. m
+
+instance hfoldableNil :: HFoldableHVFRL RL.Nil () where
+  hfoldrHVFRL _ _ _ = case_
+  hfoldlHVFRL _ _ _ = case_
+  hfoldMapHVFRL _ _ = case_
+
+instance hfoldableCons ::
+  ( IsSymbol k
+  , HFoldable f
+  , HFoldableHVFRL rl r
+  , R.Cons k (HProxy f) r r'
+  ) => HFoldableHVFRL (RL.Cons k (HProxy f) rl) r' where
+  hfoldrHVFRL _ f b = on k (hfoldr f b) (hfoldrHVFRL (RLProxy :: RLProxy rl) f b)
+    where k = SProxy :: _ k
+  hfoldlHVFRL _ f b = on k (hfoldl f b) (hfoldlHVFRL (RLProxy :: RLProxy rl) f b)
+    where k = SProxy :: _ k
+  hfoldMapHVFRL _ f = on k (hfoldMap f) (hfoldMapHVFRL (RLProxy :: RLProxy rl) f)
+    where k = SProxy :: _ k
+
+instance hfoldableHVariantF :: (RL.RowToList row rl, HFoldableHVFRL rl row) => HFoldable (HVariantF row) where
+  hfoldr = hfoldrHVFRL (RLProxy :: RLProxy rl)
+  hfoldl = hfoldlHVFRL (RLProxy :: RLProxy rl)
+  hfoldMap = hfoldMapHVFRL (RLProxy :: RLProxy rl)
+
+class HFoldableHVFRL rl row <= HTraversableHVFRL (rl :: RL.RowList) (row :: # Type) | rl -> row where
+  htraverseHVFRL :: forall a b c. Applicative c => RLProxy rl -> NatM c a b -> NatM c (HVariantF row a) (HVariantF row b)
+
+instance htraversableNil :: HTraversableHVFRL RL.Nil () where
+  htraverseHVFRL _ f = case_
+
+instance htraversableCons ::
+  ( IsSymbol k
+  , HTraversable f
+  , HTraversableHVFRL rl r
+  , R.Cons k (HProxy f) r r'
+  , R.Union r rx r'
+  ) => HTraversableHVFRL (RL.Cons k (HProxy f) rl) r' where
+  htraverseHVFRL _ f = on k (htraverse f >>> map (inj k)) (htraverseHVFRL (RLProxy :: RLProxy rl) f >>> map expand)
+    where k = SProxy :: SProxy k
+
+instance htraversableVariantF :: (RL.RowToList row rl, HTraversableHVFRL rl row) => HTraversable (HVariantF row) where
+  htraverse = htraverseHVFRL (RLProxy :: RLProxy rl)
 
 inj
   ∷ forall sym h f r1 r2
